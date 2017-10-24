@@ -652,7 +652,7 @@ uint32_t version_set(uint8_t *in)
 	memcpy(version, in, sizeof(version));
 }
 
-uint32_t auth_send(uint32_t status)
+uint32_t opcode_send(uint32_t status)
 {
     ble_gatts_hvx_params_t hvx_params = {0};
 	uint32_t errno;
@@ -682,7 +682,7 @@ uint32_t auth_send(uint32_t status)
 	return errno;
 }
 
-uint32_t auth_recv(void)
+uint32_t opcode_recv(void)
 {
 	return auth_value;
 }

@@ -189,8 +189,8 @@ void ble_mi_on_ble_evt(ble_evt_t * p_ble_evt);
  *
  * @retval NRF_SUCCESS If the status was sent successfully. Otherwise, an error code is returned.
  */
-uint32_t auth_send(uint32_t status);
-uint32_t auth_recv(void);
+uint32_t opcode_send(uint32_t status);
+uint32_t opcode_recv(void);
 
 /**@brief Function for setting version characteristic.
  *

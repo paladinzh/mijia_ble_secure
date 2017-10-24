@@ -1,6 +1,7 @@
+#include "mi_psm.h"
+
 #include "fds.h"
 #include "mi_error.h"
-#include "mi_psm.h"
 
 #define NRF_LOG_MODULE_NAME "PSM"
 #include "nrf_log.h"

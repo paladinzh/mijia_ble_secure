@@ -1,3 +1,5 @@
+#include "mi_secure.h"
+
 #include <stdint.h>
 #include <time.h>
 #include "app_timer.h"
@@ -12,7 +14,6 @@
 
 #include "sha256_hkdf.h"
 #include "ccm.h"
-#include "mi_secure.h"
 #include "mi_crypto.h"
 #include "mi_error.h"
 #include "mi_beacon.h"
@@ -89,14 +90,14 @@ static struct {
 	
 } flags;
 
-uint8_t app_pub[64];
-uint8_t msc_info[12];
-uint8_t dev_pub[64];
-uint8_t dev_sha[32];
-uint8_t eph_key[32];
-uint8_t LTMK[32];
-session_ctx_t session_key;
-uint8_t dev_sign[64];
+static uint8_t app_pub[64];
+static uint8_t msc_info[12];
+static uint8_t dev_pub[64];
+static uint8_t dev_sha[32];
+static uint8_t eph_key[32];
+static uint8_t LTMK[32];
+static session_ctx_t session_key;
+static uint8_t dev_sign[64];
 
 struct {
 	uint8_t id;
@@ -128,7 +129,6 @@ struct {
 	uint8_t mic[4];
 } encrypt_share_data;
 
-uint8_t rand_key[16];
 session_ctx_t cloud_key;
 static uint8_t nonce[12] = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
                          0x19, 0x1a, 0x1b};
@@ -245,12 +245,17 @@ static mi_schd_event_handler_t m_user_event_handler;
 static uint8_t m_is_registered;
 
 static __ALIGN(4) struct {
-	uint8_t  did[8];
-	uint8_t  beacon_key[16];
-	uint8_t  cloud_key[16];
+	uint8_t did[8];
+	uint8_t beacon_key[16];
+	uint8_t cloud_key[16];
+
+#ifdef ENC_LTMK
+	uint8_t rand_key[16];
+#endif
+
 } mi_sysinfo;
 
-int get_mi_reg_stat(void)
+uint32_t get_mi_reg_stat(void)
 {
 	return m_is_registered;
 }
@@ -850,12 +855,19 @@ static int psm_restore(pt_t *pt)
 	MKPK.id = 0;
 	msc_control_block = MSC_XFER(MSC_RD_MKPK, &MKPK.id, 1, (uint8_t*)MKPK.cipher, 32+4);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-	SET_DATA_VAILD(flags.MKPK);
+
+	errno = 
+	aes_ccm_auth_decrypt(mi_sysinfo.rand_key,
+	                               nonce,  12,
+	                                NULL,  0,
+	                         MKPK.cipher,  32,
+	                                LTMK,
+	                            MKPK.mic,  4);
+	APP_ERROR_CHECK(errno);
 #else
 	MKPK.id = 1;
 	msc_control_block = MSC_XFER(MSC_RD_MKPK, &MKPK.id, 1, (uint8_t*)LTMK, 32);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-	SET_DATA_VAILD(flags.LTMK);
 #endif
 
 	enqueue(&schd_evt_queue, SCHD_EVT_KEY_FOUND);
@@ -887,9 +899,10 @@ static int err_thd(pt_t *pt, uint32_t errno)
 {
 	PT_BEGIN(pt);
 
-	PT_WAIT_UNTIL(pt, auth_send(errno) == MI_SUCCESS);
+	PT_WAIT_UNTIL(pt, opcode_send(errno) == MI_SUCCESS);
 	PT_YIELD(pt);
 	enqueue(&schd_evt_queue, errno == ERR_REGISTERED ? SCHD_EVT_KEY_FOUND : SCHD_EVT_KEY_NOT_FOUND);
+
 	PT_END(pt);
 }
 
@@ -1044,48 +1057,46 @@ static int reg_auth(pt_t *pt)
 	                        dev_sign, 64, encrypt_reg_data.cipher, encrypt_reg_data.mic, 4);
 	SET_DATA_VAILD(flags.encrypt_reg_data);
 
-	PT_WAIT_UNTIL(pt, auth_recv() != REG_START);
-	if (auth_recv() == REG_VERIFY_FAIL) {
+	PT_WAIT_UNTIL(pt, opcode_recv() != REG_START);
+	if (opcode_recv() == REG_VERIFY_FAIL) {
 		NRF_LOG_ERROR("Auth failed.\n");
-		PT_WAIT_UNTIL(pt, auth_send(REG_FAILED) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(REG_FAILED) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_REG_FAILED);
 		PT_EXIT(pt);
 	}
 
-	while(rand_key[0] < 16) {
-		sd_rand_application_bytes_available_get(rand_key);
-		PT_YIELD(pt);
-	}
-	sd_rand_application_vector_get(rand_key, 16);
+
 
 	sha256_hkdf(     eph_key,         sizeof(eph_key),
 	        (void *) mk_salt,         sizeof(mk_salt)-1,
 	        (void *) mk_info,         sizeof(mk_info)-1,
 	                    LTMK,         sizeof(LTMK));
-	SET_DATA_VAILD(flags.LTMK);
+
 #if PRINT_LTMK
 	NRF_LOG_RAW_HEXDUMP_INFO(LTMK, 32);
 	PT_YIELD(pt);
 #endif
-//	aes_ccm_encrypt(rand_key, nonce, NULL, 0, MKPK.mic, 4, LTMK, 32, MKPK.cipher);
-	
-	// fs_store(rand_key);
-	// log encrypt procedure
+
 
 #if ENC_LTMK
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.MKPK));
-	
+	while(sd_rand_application_vector_get(mi_sysinfo.rand_key, 16) != NRF_SUCCESS) {
+		PT_YIELD(pt);
+	}
+
 	MKPK.id = 0;
+	aes_ccm_encrypt_and_tag(mi_sysinfo.rand_key,
+			                  nonce, 12,
+							   NULL, 0,
+					           LTMK, 32,
+					    MKPK.cipher,
+					       MKPK.mic, 4);
 	msc_control_block = MSC_XFER(MSC_WR_MKPK, (void*)&MKPK, 1+32+4, NULL, 0);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
 #else
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.LTMK));
-	
 	MKPK.id = 1;
 	memcpy(MKPK.cipher, LTMK, 32);
 	msc_control_block = MSC_XFER(MSC_WR_MKPK, (void*)&MKPK, 1+32, NULL, 0);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-
 #endif
 
 	sha256_hkdf(        LTMK,         sizeof(LTMK),
@@ -1099,14 +1110,14 @@ static int reg_auth(pt_t *pt)
 	
 	uint8_t errno = mi_psm_record_write(0xBEEF, (uint8_t*)&mi_sysinfo, sizeof(mi_sysinfo));
 	if (errno != MI_SUCCESS) {
-		PT_WAIT_UNTIL(pt, auth_send(REG_FAILED) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(REG_FAILED) == NRF_SUCCESS);
 		NRF_LOG_RAW_INFO("KEYINFO STORE FAILED: %d\n", errno);
 		enqueue(&schd_evt_queue, SCHD_EVT_REG_FAILED);
 		
 	 } else {
 		set_mi_reg_stat(true);
 		set_beacon_key(mi_sysinfo.beacon_key);
-		PT_WAIT_UNTIL(pt, auth_send(REG_SUCCESS) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(REG_SUCCESS) == NRF_SUCCESS);
 		NRF_LOG_RAW_INFO("REG SUCCESS: %d\n", schd_time);
 		enqueue(&schd_evt_queue, SCHD_EVT_REG_SUCCESS);
 	}
@@ -1183,7 +1194,7 @@ static int admin_auth(pt_t *pt)
 	PT_YIELD(pt);
 #endif
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.eph_key));
-
+	
 	sha256_hkdf(     eph_key,         sizeof(eph_key) + sizeof(LTMK),
 	        (void *)log_salt,         sizeof(log_salt)-1,
 	        (void *)log_info,         sizeof(log_info)-1,
@@ -1206,11 +1217,11 @@ static int admin_auth(pt_t *pt)
 		key_id = 0;
 		set_mi_authorization(OWNER_AUTHORIZATION);
 		mi_crypto_init(&session_key);
-		PT_WAIT_UNTIL(pt, auth_send(LOG_SUCCESS) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(LOG_SUCCESS) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_ADMIN_LOGIN_SUCCESS);
 	} else {
 		NRF_LOG_ERROR("ADMIN LOG FAILED. %d\n", errno);
-		PT_WAIT_UNTIL(pt, auth_send(LOG_FAILED) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(LOG_FAILED) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_ADMIN_LOGIN_FAILED);
 	}
 
@@ -1267,6 +1278,7 @@ static int verify_share_info(void * pinfo, uint8_t * p_LTMK)
 	}
 	NRF_LOG_INFO("Local  UTC %s", nrf_log_push(ctime(&curr_time)));
 	NRF_LOG_INFO("Expire UTC %s", nrf_log_push(ctime(&virtual_key.key.expire_time)));
+	
 	
 	if (virtual_key.key.expire_time <= curr_time + RTC_TIME_DRIFT) {
 		NRF_LOG_ERROR("virtual key expired.\n");
@@ -1378,20 +1390,18 @@ static int shared_auth(pt_t *pt)
 		PT_EXIT(pt);
 	}
 	
-//	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.LTMK));
-
 // verify the virtual key
 
 	if (verify_share_info(&shared_info, LTMK) != 0) {
 		NRF_LOG_ERROR("SHARED LOG FAILED: %d\n", schd_time);
-		PT_WAIT_UNTIL(pt, auth_send(SHARED_LOG_FAILED) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(SHARED_LOG_FAILED) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_SHARE_LOGIN_FAILED);
 	} else {
 		NRF_LOG_INFO("SHARED LOG SUCCESS: %d\n", schd_time);
 		set_mi_authorization(SHARE_AUTHORIZATION);
 		mi_crypto_init(&session_key);
 
-		PT_WAIT_UNTIL(pt, auth_send(SHARED_LOG_SUCCESS) == NRF_SUCCESS);
+		PT_WAIT_UNTIL(pt, opcode_send(SHARED_LOG_SUCCESS) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_SHARE_LOGIN_SUCCESS);
 	}
 
