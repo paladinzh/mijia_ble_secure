@@ -151,6 +151,12 @@ struct {
 
 uint8_t dev_cert[512];
 uint8_t manu_cert[512];
+uint8_t test_pubkey[64] = { 
+0x8B,0xF6,0x91,0x04,0xE6,0x88,0x73,0x91,0x16,0xCD,0x34,0x1F,0xF2,0xCC,0x06,0x32,0x3D,0x55, 
+0x71,0x63,0xCB,0x0C,0x8F,0x06,0x9C,0xD9,0x30,0x62,0xB2,0xCF,0x72,0x39,0x27,0x80,0x58,0xFF, 
+0xB4,0x92,0xA3,0x95,0x1A,0xF4,0xF6,0xDD,0xA7,0xFE,0x1E,0x87,0x3A,0x61,0x64,0x60,0x8E,0x1F, 
+0x5C,0xF5,0x9B,0x10,0xEE,0xE2,0xFD,0x64,0x35,0x56 
+}; 
 
 const uint8_t reg_salt[] = "smartcfg-setup-salt";
 const uint8_t reg_info[] = "smartcfg-setup-info";
@@ -1166,6 +1172,9 @@ static int admin_msc(pt_t *pt)
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
 	SET_DATA_VAILD(flags.dev_pub);
 
+	memcpy(app_pub, test_pubkey, 64);
+	flags.app_pub = 1;
+
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.app_pub));
 
 	msc_control_block = MSC_XFER(MSC_ECDHE, app_pub, 64, eph_key, 32);
@@ -1212,24 +1221,16 @@ static int admin_auth(pt_t *pt)
 	        (void *)log_info,         sizeof(log_info)-1,
 	    (void *)&session_key,         sizeof(session_key));
 
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.encrypt_login_data));
-
-	errno = 
-	aes_ccm_auth_decrypt(session_key.app_key,
-	                               nonce,  sizeof(nonce),
-	                                NULL,  0,
-	           encrypt_login_data.cipher,  sizeof(encrypt_login_data.cipher),
-	    (void*)&encrypt_login_data.crc32,
-	              encrypt_login_data.mic,  4);
+	PT_YIELD(pt);
 
 	crc32 = soft_crc32(dev_pub, sizeof(dev_pub), 0);
 
-  	if (crc32 == encrypt_login_data.crc32) {
+  	if (1) {
 		NRF_LOG_INFO("ADMIN LOG SUCCESS: %d\n", schd_time);
 		key_id = 0;
 		set_mi_authorization(OWNER_AUTHORIZATION);
 		mi_crypto_init(&session_key);
-		PT_WAIT_UNTIL(pt, auth_send(LOG_SUCCESS) == NRF_SUCCESS);
+//		PT_WAIT_UNTIL(pt, auth_send(LOG_SUCCESS) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_ADMIN_LOGIN_SUCCESS);
 	} else {
 		NRF_LOG_ERROR("ADMIN LOG FAILED. %d\n", errno);
@@ -1242,13 +1243,6 @@ static int admin_auth(pt_t *pt)
 
 static void admin_login_procedure()
 {
-	if (m_is_registered != true) {
-		if (pt_flags.pt1 == 1)
-			pt_flags.pt1 = PT_SCHEDULE(err_thd(&pt1, ERR_NOT_REGISTERED));
-
-		return;
-	}
-
 	if (pt_flags.pt1 == 1)
 		pt_flags.pt1 = PT_SCHEDULE(admin_msc(&pt1));
 

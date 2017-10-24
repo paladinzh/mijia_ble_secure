@@ -672,18 +672,23 @@ typedef __packed struct {
 
 void mi_schd_event_handler(schd_evt_t evt_id)
 {
-	NRF_LOG_RAW_INFO("USER CUSTOM CALLBACK RECV EVT ID %d\n", evt_id);
+	static uint32_t cnt = 0;
+	if (evt_id == SCHD_EVT_ADMIN_LOGIN_SUCCESS)
+		cnt++;
+	else if (evt_id == SCHD_EVT_TIMEOUT)
+		app_timer_stop(poll_timer);
+
+	NRF_LOG_RAW_INFO("Total num of LOGIN_SUCCESS : %d\n", cnt);
+
+	// SHOULD initiate unlock operation
 }
 
 void poll_timer_handler(void * p_context)
 {
 	time_t utc_time = time(NULL);
 	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"%s", nrf_log_push(ctime(&utc_time)));
-
-	uint8_t battery_stat = 1;
-	mibeacon_obj_enque(MI_STA_BATTERY, sizeof(battery_stat), &battery_stat);
-
-	NRF_LOG_RAW_INFO("max timer cnt :%d\n", app_timer_op_queue_utilization_get());
+	app_timer_start(poll_timer, APP_TIMER_TICKS(5000, APP_TIMER_PRESCALER), NULL);
+	mi_scheduler_start(LOG_START);
 }
 /**@brief Application main function.
  */
@@ -724,8 +729,8 @@ int main(void)
 	
 	mi_scheduler_start(SYS_KEY_RESTORE);
 
-	app_timer_create(&poll_timer, APP_TIMER_MODE_REPEATED, poll_timer_handler);
-	app_timer_start(poll_timer, APP_TIMER_TICKS(20000, APP_TIMER_PRESCALER), NULL);
+	app_timer_create(&poll_timer, APP_TIMER_MODE_SINGLE_SHOT, poll_timer_handler);
+	app_timer_start(poll_timer, APP_TIMER_TICKS(5000, APP_TIMER_PRESCALER), NULL);
 	
 #ifdef M_TEST
 	mi_scheduler_start(0);
