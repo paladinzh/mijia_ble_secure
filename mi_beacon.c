@@ -1,3 +1,5 @@
+#include "mi_beacon.h"
+
 #include <string.h>
 #include "ccm.h"
 
@@ -10,7 +12,6 @@
 #include "mi_error.h"
 #include "mi_config.h"
 #include "mi_arch.h"
-#include "mi_beacon.h"
 
 #define NRF_LOG_MODULE_NAME "BEACON"
 #include "nrf_log.h"
@@ -192,17 +193,7 @@ static void mibeacon_timer_handler(void * p_context)
 		beacon_cfg.pid = m_beacon_data.pid;
 		beacon_cfg.p_obj = (void*)elem;
 		mibeacon_data_set(&beacon_cfg, adv_data, &adv_len);
-#if 0
-		ble_advdata_service_data_t serviceData;
-		serviceData.service_uuid = BLE_UUID_MI_SERVICE;
-		serviceData.data.size    = adv_len;
-		serviceData.data.p_data  = adv_data;
 
-		ble_advdata_t          scan_rsp;
-		memset(&scan_rsp, 0, sizeof(scan_rsp));
-		scan_rsp.p_service_data_array = &serviceData;
-		scan_rsp.service_data_count = 1;
-#else
 		ble_advdata_manuf_data_t manu_data;
 		manu_data.company_identifier = BLE_COMPANY_ID_XIAOMI;
 		manu_data.data.size          = adv_len;
@@ -211,7 +202,7 @@ static void mibeacon_timer_handler(void * p_context)
 		ble_advdata_t          scan_rsp;
 		memset(&scan_rsp, 0, sizeof(scan_rsp));
 		scan_rsp.p_manuf_specific_data = &manu_data;
-#endif
+
 		NRF_LOG_INFO("mibeacon event adv ...\n");
 		errno = ble_advdata_set(NULL, &scan_rsp);
 		APP_ERROR_CHECK(errno);
@@ -236,6 +227,7 @@ int mibeacon_obj_enque(mibeacon_obj_name_t evt, uint8_t len, void *val)
 		NRF_LOG_ERROR("push beacon event errno %d\n", errno);
 		return MI_ERROR_RESOURCES;
 	}
+
 	if (m_beacon_timer_is_running != true ) {
 		/* All event will be processed in mibeacon_timer_handler() */
 		errno = app_timer_start(mibeacon_timer, APP_TIMER_TICKS(10, 0), NULL);

@@ -21,14 +21,6 @@ extern "C"
 /**
  * MI Beacon status and error code.
  */
-typedef enum
-{
-    MI_SUCCESS = 0,
-    MI_ERR_INVALID_PARA,
-    MI_ERR_LEN_TOO_LONG,
-    MI_ERR_NO_MEM,
-} mi_retcode_t;
-
 
 #define HI_UINT16(a) (((a) >> 8) & 0xFF)
 #define LO_UINT16(a) ((a) & 0xFF)
