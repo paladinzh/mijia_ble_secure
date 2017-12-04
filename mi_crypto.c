@@ -61,7 +61,7 @@ int mi_crypto_uninit(void)
 int mi_session_encrypt(const uint8_t *input, uint8_t len, uint8_t *output)
 {
 	uint32_t ret = 0;
-
+	uint32_t curr_cnt = session_dev_cnt;
 	if (m_flags.initialized != 1)
 		ret = 1;
 
@@ -81,7 +81,11 @@ int mi_session_encrypt(const uint8_t *input, uint8_t len, uint8_t *output)
 	session_nonce_t nonce = {0};
 	memcpy(nonce.iv, session_ctx.dev_iv, sizeof(nonce.iv));
 	uint16_t cnt_low = (uint16_t)session_dev_cnt;
-	update_cnt(&session_dev_cnt, ++cnt_low);
+	update_cnt(&curr_cnt, ++cnt_low);
+
+	if (curr_cnt < session_dev_cnt)
+		return -1;
+
 	nonce.counter = session_dev_cnt;
 	
 	aes_ccm_encrypt_and_tag(session_ctx.dev_key, (void*)&nonce, sizeof(nonce), NULL, 0,
@@ -96,7 +100,7 @@ int mi_session_encrypt(const uint8_t *input, uint8_t len, uint8_t *output)
 int mi_session_decrypt(const uint8_t *input, uint8_t len, uint8_t *output)
 {
 	uint32_t ret = 0;
-
+	uint32_t curr_cnt = session_app_cnt;
 	if (m_flags.initialized != 1)
 		ret = 1;
 
@@ -113,7 +117,11 @@ int mi_session_decrypt(const uint8_t *input, uint8_t len, uint8_t *output)
 	session_nonce_t nonce = {0};
 	memcpy(nonce.iv, session_ctx.app_iv, sizeof(nonce.iv));
 	uint16_t cnt_low = input[1]<<8 | input[0];
-	update_cnt(&session_app_cnt, cnt_low);
+	update_cnt(&curr_cnt, cnt_low);
+
+	if (curr_cnt < session_app_cnt)
+		return -1;
+
 	nonce.counter = session_app_cnt;
 
 	ret = aes_ccm_auth_decrypt(session_ctx.app_key, (void*)&nonce, sizeof(nonce), NULL, 0,

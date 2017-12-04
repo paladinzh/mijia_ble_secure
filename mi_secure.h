@@ -74,12 +74,13 @@ typedef enum {
 } schd_evt_t;
 
 typedef void (*mi_schd_event_handler_t)(schd_evt_t evt_id);
+typedef int (*mi_kbd_input_get_t)(uint8_t *pdata, uint8_t);
 
 void set_mi_authorization(mi_author_stat_t status);
 uint32_t get_mi_reg_stat(void);
 uint32_t get_mi_authorization(void);
 uint32_t get_mi_key_id(void);
-uint32_t mi_scheduler_init(uint32_t interval, mi_schd_event_handler_t handler);
+uint32_t mi_scheduler_init(uint32_t interval, mi_schd_event_handler_t handler, mi_kbd_input_get_t recorder);
 uint32_t mi_scheduler_start(uint32_t status);
 
 #ifdef __cplusplus

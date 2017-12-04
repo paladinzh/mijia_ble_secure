@@ -38,7 +38,7 @@ typedef struct {
 	uint8_t				manu_title_include   :1;
 
 	uint8_t				bind_confirm :1;
-	uint8_t				reserved1    :1;
+	uint8_t				secure_auth  :1;
 	uint8_t				secure_login :1;
 	uint8_t				version      :4;
 } mibeacon_frame_ctrl_t;

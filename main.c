@@ -560,6 +560,7 @@ static void advertising_init(void)
 #endif
 
 	mibeacon_config_t  beacon_cfg     = {0};
+	beacon_cfg.frame_ctrl.secure_auth = 1;
 	beacon_cfg.frame_ctrl.version     = 4;
 	beacon_cfg.pid                    = APP_PRODUCT_ID;
 	beacon_cfg.p_capability           = &cap;
@@ -675,16 +676,41 @@ void mi_schd_event_handler(schd_evt_t evt_id)
 	NRF_LOG_RAW_INFO("USER CUSTOM CALLBACK RECV EVT ID %d\n", evt_id);
 }
 
+int pair_code_get(uint8_t *pdata, uint8_t len)
+{
+	static uint8_t input[6] = {0};
+	static uint8_t num = 0;
+	num += SEGGER_RTT_ReadNoLock(0, input + num, 6 - num);
+	
+	if (num != 6) {
+		return 1;
+	} else {
+   		memcpy(pdata, input, 6);
+		num = 0;
+		return 0;
+	}
+}
+
+uint8_t PIN[8];
 void poll_timer_handler(void * p_context)
 {
-	time_t utc_time = time(NULL);
-	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"%s", nrf_log_push(ctime(&utc_time)));
+//	time_t utc_time = time(NULL);
+//	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"%s", nrf_log_push(ctime(&utc_time)));
 
-	uint8_t battery_stat = 1;
-	mibeacon_obj_enque(MI_STA_BATTERY, sizeof(battery_stat), &battery_stat);
+//	uint8_t battery_stat = 1;
+//	mibeacon_obj_enque(MI_STA_BATTERY, sizeof(battery_stat), &battery_stat);
 
-	NRF_LOG_RAW_INFO("max timer cnt :%d\n", app_timer_op_queue_utilization_get());
+//	NRF_LOG_RAW_INFO("max timer cnt :%d\n", app_timer_op_queue_utilization_get());
+	static uint8_t no_enough_digits = 1;
+	if (no_enough_digits)
+		no_enough_digits = pair_code_get(PIN, 6);
+	else {
+		NRF_LOG_RAW_INFO("\ninput: %s\n", (uint32_t)PIN);
+		no_enough_digits = 1;
+	}
 }
+
+
 /**@brief Application main function.
  */
 int main(void)
@@ -720,12 +746,12 @@ int main(void)
 	/* <!> mi_psm_init() must be called after ble_stack_init(). */
 	mi_psm_init();
 	mibeacon_init();
-	mi_scheduler_init(APP_TIMER_TICKS(10, APP_TIMER_PRESCALER), mi_schd_event_handler);
+	mi_scheduler_init(APP_TIMER_TICKS(10, APP_TIMER_PRESCALER), mi_schd_event_handler, pair_code_get);
 	
 	mi_scheduler_start(SYS_KEY_RESTORE);
 
 	app_timer_create(&poll_timer, APP_TIMER_MODE_REPEATED, poll_timer_handler);
-	app_timer_start(poll_timer, APP_TIMER_TICKS(20000, APP_TIMER_PRESCALER), NULL);
+//	app_timer_start(poll_timer, APP_TIMER_TICKS(1000, APP_TIMER_PRESCALER), NULL);
 	
 #ifdef M_TEST
 	mi_scheduler_start(0);

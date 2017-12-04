@@ -30,6 +30,7 @@
 #endif
 
 
+
 typedef struct {
     uint8_t  vid;
     uint16_t hw_ver;
@@ -46,8 +47,9 @@ typedef struct {
 	uint32_t reserved[3];
 } shared_key_t;
 
-#define PROTOCOL_VERSION   0x0200
+#define PROTOCOL_VERSION   0x0201
 #define PROFILE_PIN        25
+#define PAIRCODE_NUMS      6
 
 #define PRINT_MSC_INFO     1
 #define PRINT_MAC          0
@@ -243,6 +245,7 @@ static int monitor(pt_t *pt);
 static uint32_t key_id;
 static mi_author_stat_t mi_authorization_status;
 static mi_schd_event_handler_t m_user_event_handler;
+static mi_kbd_input_get_t m_pair_code_get;
 static uint8_t m_is_registered;
 
 static __ALIGN(4) struct {
@@ -281,7 +284,7 @@ uint32_t get_mi_authorization(void)
 }
 
 
-uint32_t mi_scheduler_init(uint32_t interval, mi_schd_event_handler_t handler)
+uint32_t mi_scheduler_init(uint32_t interval, mi_schd_event_handler_t handler, mi_kbd_input_get_t recorder)
 {
 	int32_t errno;
 	schd_interval = interval;
@@ -291,6 +294,9 @@ uint32_t mi_scheduler_init(uint32_t interval, mi_schd_event_handler_t handler)
 	if (handler != NULL)
 		m_user_event_handler = handler;
 
+	if (recorder != NULL)
+		m_pair_code_get = recorder;
+	
 	nrf_gpio_cfg_output(MJSC_POWER_PIN);
 	nrf_gpio_pin_clear(MJSC_POWER_PIN);
 
@@ -354,74 +360,42 @@ int test_thd(pt_t *pt)
 	PT_BEGIN(pt);
 	static int i;
 	static uint16_t len;
-//	session_ctx_t key = {0};
-//	memcpy(key.app_key, "DUMMY KEY", 10);
-//	memcpy(key.dev_key, "DUMMY KEY", 10);
-//	memcpy(key.dev_iv , "DUMMY KEY", 4);
-//	memcpy(key.app_iv , "DUMMY KEY", 4);
-//	mi_crypto_init(&key);
+	session_ctx_t key = {0};
+	memcpy(key.app_key, "DUMMY KEY", 10);
+	memcpy(key.dev_key, "DUMMY KEY", 10);
+	memcpy(key.dev_iv , "DUMMY KEY", 4);
+	memcpy(key.app_iv , "DUMMY KEY", 4);
+	mi_crypto_init(&key);
 
-//	mi_session_encrypt(msg, 10, msg);
-//	NRF_LOG_RAW_HEXDUMP_INFO(msg, 16);
+	mi_session_encrypt(msg, 10, msg);
+	NRF_LOG_RAW_HEXDUMP_INFO(msg, 16);
 
-//	mi_session_decrypt(msg, 10+6, cipher);
-//	NRF_LOG_RAW_HEXDUMP_INFO(cipher, 16);
+	mi_session_decrypt(msg, 10+6, cipher);
+	NRF_LOG_RAW_HEXDUMP_INFO(cipher, 16);
 
-	msc_control_block = MSC_XFER(MSC_CERTS_LEN, NULL, 0, (void*)&m_certs_len, sizeof(m_certs_len));
-	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-
-	m_certs_len.dev  = __REV16(m_certs_len.dev);
-	m_certs_len.manu = __REV16(m_certs_len.manu);
+	i = 1000;
+	nrf_gpio_pin_set(PROFILE_PIN);
+	while(i--)
+	aes_ccm_test();
+	nrf_gpio_pin_clear(PROFILE_PIN);
 	
-	msc_control_block = MSC_XFER(MSC_DEV_CERT, NULL, 0, dev_cert, m_certs_len.dev);
+	i = 1000;
+	nrf_gpio_pin_set(PROFILE_PIN);
+	while(i--)
+	aes_ccm_test2();
+	nrf_gpio_pin_clear(PROFILE_PIN);
+
+	i = 1;
+	nrf_gpio_pin_set(PROFILE_PIN);
+	while(i--)
+	sha256_hkdf(   test_str,          32,
+		  (void *)share_salt,         sizeof(share_salt)-1,
+	      (void *)share_info,         sizeof(share_info)-1,
+	    (void *)&session_key,         64);
+	nrf_gpio_pin_clear(PROFILE_PIN);
+	msc_control_block = MSC_XFER(MSC_AESCCM_ENC, test_str, sizeof(test_str), cipher, 20);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-
-	NRF_LOG_RAW_INFO("dev_cert %d bytes\n", m_certs_len.dev);
-	PT_YIELD(pt);
-	for (i = 0; i*96 < m_certs_len.dev; i++) {
-		len = m_certs_len.dev - i*96;
-		len = len > 96 ? 96 : len;
-		NRF_LOG_RAW_HEXDUMP_INFO(dev_cert + i*96, len);
-		PT_YIELD(pt);
-	}
-
-	msc_control_block = MSC_XFER(MSC_MANU_CERT, NULL, 0, manu_cert, m_certs_len.manu);
-	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-	PT_YIELD(pt);
-	NRF_LOG_RAW_INFO("manu_cert %d bytes\n", m_certs_len.manu);
-	PT_YIELD(pt);
-	for (i = 0; i*96 < m_certs_len.dev; i++) {
-		len = m_certs_len.manu - i*96;
-		len = len > 96 ? 96 : len;
-		NRF_LOG_RAW_HEXDUMP_INFO(manu_cert + i*96, len);
-		PT_YIELD(pt);
-	}
-
-//	i = 1000;
-//	nrf_gpio_pin_set(PROFILE_PIN);
-//	while(i--)
-//	aes_ccm_test();
-//	nrf_gpio_pin_clear(PROFILE_PIN);
-	
-//	i = 1000;
-//	nrf_gpio_pin_set(PROFILE_PIN);
-//	while(i--)
-//	aes_ccm_test2();
-//	nrf_gpio_pin_clear(PROFILE_PIN);
-
-//	i = 1;
-//	nrf_gpio_pin_set(PROFILE_PIN);
-//	while(i--)
-//	sha256_hkdf(   test_str,          32,
-//		  (void *)share_salt,         sizeof(share_salt)-1,
-//	      (void *)share_info,         sizeof(share_info)-1,
-//	    (void *)&session_key,         64);
-//	nrf_gpio_pin_clear(PROFILE_PIN);
-//	msc_control_block = MSC_XFER(MSC_AESCCM_ENC, test_str, sizeof(test_str), cipher, 20);
-//	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
-//	NRF_LOG_HEXDUMP_INFO(cipher, 20);
-
-//	PT_YIELD(pt);
+	NRF_LOG_HEXDUMP_INFO(cipher, 20);
 
 	PT_WAIT_UNTIL(pt, 0);
 	PT_END(pt);
@@ -476,7 +450,7 @@ static uint16_t find_lost_sn(reliable_xfer_t *pxfer)
 	p_pkt += checked_sn - 1;
 	// <!> vulnerable check : word-read unaligned address may cause mem-hardfault
 	// TODO:  refine the big data transfer protocol
-	//        just think about what if we lost the last packet ?
+	//        or just think about what if we lost the last packet ?
 	while ( checked_sn <= pxfer->rx_num && ((uint16_t*)p_pkt)[0] != 0 ) {
 		checked_sn++;
 		p_pkt++;
@@ -605,7 +579,7 @@ static int rxfer_tx_thd(pt_t *pt, reliable_xfer_t *pxfer, uint8_t data_type)
 {
 	PT_BEGIN(pt);
 
-	/* Send data. */
+	/* Send data */
 	PT_WAIT_UNTIL(pt, reliable_xfer_cmd(data_type, pxfer->tx_num) == NRF_SUCCESS);
 
 	pxfer->state = RXFER_WAIT_ACK;
@@ -828,8 +802,8 @@ static int monitor(pt_t *pt)
 	uint8_t errno;
 
 	PT_BEGIN(pt);
-	// All procedure timeout times are 5 seconds
-	timer_set(&proc_timeout, 5000);
+	// All procedure timeout times are 20 seconds
+	timer_set(&proc_timeout, 20000);
 	queue_init(&schd_evt_queue, evt_buf, sizeof(evt_buf));
 
 	while(1) {
@@ -1026,12 +1000,13 @@ static int reg_ble(pt_t *pt)
 
 static int reg_auth(pt_t *pt)
 {
-	static uint8_t pair_code[6];
+	static uint8_t pair_code[PAIRCODE_NUMS];
 	PT_BEGIN(pt);
 	
-	// get pair code
-
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.eph_key));
+
+	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"Please input your pair code (MUST be 6 digits) : \n\n");
+	PT_WAIT_UNTIL(pt, m_pair_code_get(pair_code, sizeof(pair_code)) == MI_SUCCESS);
 	sha256_hkdf(     eph_key,         sizeof(eph_key),
 	               pair_code,         sizeof(pair_code),
 	        (void *)reg_info,         sizeof(reg_info)-1,
@@ -1057,16 +1032,14 @@ static int reg_auth(pt_t *pt)
 	NRF_LOG_HEXDUMP_INFO(dev_sha, 32);
 #endif
 
-	PT_WAIT_UNTIL(pt, auth_recv() != REG_START);
-	if (auth_recv() == REG_VERIFY_FAIL) {
+	PT_WAIT_UNTIL(pt, opcode_recv() != REG_START);
+	if (opcode_recv() != REG_VERIFY_SUCC) {
 		NRF_LOG_ERROR("Auth failed.\n");
 		PT_WAIT_UNTIL(pt, opcode_send(REG_FAILED) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_REG_FAILED);
 		PT_EXIT(pt);
 	}
 
-
-	SET_DATA_VAILD(flags.LTMK);
 #if PRINT_LTMK
 	NRF_LOG_RAW_HEXDUMP_INFO(LTMK, 32);
 	PT_YIELD(pt);

@@ -6,6 +6,8 @@
 #define EVT_QUEUE_SIZE         10
 #define BLE_UUID_MI_SERVICE    0xFE95
 #define BLE_COMPANY_ID_XIAOMI  0x038F
+
+
 #define MJSC_POWER_PIN         30
 
 #endif  /* __MI_CONFIG_H__ */ 

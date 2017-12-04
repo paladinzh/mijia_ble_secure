@@ -496,9 +496,9 @@ int reliable_xfer_data(reliable_xfer_t *pxfer, uint16_t sn)
 
     errno = sd_ble_gatts_hvx(mi_srv.conn_handle, &hvx_params);
 	
-	if (errno != NRF_SUCCESS) {
+//	if (errno != NRF_SUCCESS) {
 //		NRF_LOG_RAW_INFO("Cann't send pkt %d: %X\n", sn, errno);
-	}
+//	}
 
 	return errno;
 }
