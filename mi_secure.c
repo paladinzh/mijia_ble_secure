@@ -48,7 +48,7 @@ typedef struct {
 #define PROTOCOL_VERSION   0x0200
 #define PROFILE_PIN        25
 
-#define PRINT_MSC_INFO     0
+#define PRINT_MSC_INFO     1
 #define PRINT_MAC          0
 #define PRINT_DEV_PUBKEY   0
 #define PRINT_SHA256       0
@@ -671,6 +671,8 @@ static void msc_power_on(uint32_t pin)
 {
 	if (pin != 0xFFFFFFFF)
 		nrf_gpio_pin_set(pin);
+	
+	
 }
 
 static void msc_power_off(uint32_t pin)
@@ -932,16 +934,16 @@ static int reg_msc(pt_t *pt)
 {
 	PT_BEGIN(pt);
 	MSC_POWER_ON();
+
 	msc_control_block = MSC_XFER(MSC_PUBKEY, NULL, 0, dev_pub, 64);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
+	SET_DATA_VAILD(flags.dev_pub);
 
 	msc_control_block = MSC_XFER(MSC_INFO, NULL, 0, (void*)&tmp_info, 26);
 	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
 	tmp_info.protocol_ver = PROTOCOL_VERSION;
 	memcpy(msc_info+8, (uint8_t*)&tmp_info.sw_ver, 4);
-
-	msc_control_block = MSC_XFER(MSC_ID, NULL, 0, msc_info, 8);
-	PT_SPAWN(pt, &pt_msc_thd, msc_thread(&pt_msc_thd, &msc_control_block));
+	msc_info[0] = 1;
 	SET_DATA_VAILD(flags.msc_info);
 
 	msc_control_block = MSC_XFER(MSC_CERTS_LEN, NULL, 0, (void*)&m_certs_len, sizeof(m_certs_len));
@@ -1001,8 +1003,8 @@ static int reg_ble(pt_t *pt)
 	PT_SPAWN(pt, &pt_r_tx_thd, rxfer_tx_thd(&pt_r_tx_thd, &rxfer_control_block, DEV_MANU_CERT));
 	NRF_LOG_INFO("manu_cert send "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
 	
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.encrypt_reg_data));
-	format_tx_cb(&rxfer_control_block, &encrypt_reg_data, sizeof(encrypt_reg_data));
+	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.dev_sign));
+	format_tx_cb(&rxfer_control_block, &dev_sign, sizeof(dev_sign));
 	PT_SPAWN(pt, &pt_r_tx_thd, rxfer_tx_thd(&pt_r_tx_thd, &rxfer_control_block, DEV_SIGNATURE));
 	NRF_LOG_INFO("encrypt_reg_data send "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
 
@@ -1011,37 +1013,27 @@ static int reg_ble(pt_t *pt)
 
 static int reg_auth(pt_t *pt)
 {
+	static uint8_t pair_code[6];
 	PT_BEGIN(pt);
 	
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.msc_info));
+	// get pair code
 
-	ble_gap_addr_t   dev_mac;
-	uint8_t          dev_mac_be[6]; 
-
-#if (NRF_SD_BLE_API_VERSION == 3)
-	sd_ble_gap_addr_get(&dev_mac);
-#else
-	sd_ble_gap_address_get(&dev_mac);
-#endif
-
-	for (int i = 0; i<6; i++)
-		dev_mac_be[i] = dev_mac.addr[5-i];
-
+	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.eph_key));
+	sha256_hkdf(     eph_key,         sizeof(eph_key),
+	               pair_code,         sizeof(pair_code),
+	        (void *)reg_info,         sizeof(reg_info)-1,
+	                    LTMK,         32);
+	
 	mbedtls_sha256_context sha256_ctx;
 	mbedtls_sha256_init(&sha256_ctx);
 	mbedtls_sha256_starts(&sha256_ctx, 0 );
-	mbedtls_sha256_update(&sha256_ctx, msc_info,    sizeof(msc_info));
-	mbedtls_sha256_update(&sha256_ctx, dev_mac_be,  sizeof(dev_mac_be));
-	mbedtls_sha256_update(&sha256_ctx, dev_pub,     64);
+	mbedtls_sha256_update(&sha256_ctx, LTMK, 32);
 	mbedtls_sha256_finish(&sha256_ctx, dev_sha);
 	SET_DATA_VAILD(flags.dev_sha);
+
 #if (PRINT_MSC_INFO   == 1)
 	NRF_LOG_RAW_INFO("MSC info\t");
 	NRF_LOG_HEXDUMP_INFO(msc_info, 12);
-#endif
-#if (PRINT_MAC        == 1)
-	NRF_LOG_RAW_INFO("MAC\t");
-	NRF_LOG_HEXDUMP_INFO(dev_be, 6);
 #endif
 #if (PRINT_DEV_PUBKEY == 1)
 	NRF_LOG_RAW_INFO("DEV_PUBKEY\t");
@@ -1051,18 +1043,6 @@ static int reg_auth(pt_t *pt)
 	NRF_LOG_RAW_INFO("SHA256\t");
 	NRF_LOG_HEXDUMP_INFO(dev_sha, 32);
 #endif
-
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.eph_key));
-	sha256_hkdf(     eph_key,         sizeof(eph_key),
-	        (void *)reg_salt,         sizeof(reg_salt)-1,
-	        (void *)reg_info,         sizeof(reg_info)-1,
-	    (void *)&session_key,         sizeof(session_key));
-
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.dev_sign));
-
-	aes_ccm_encrypt_and_tag(session_key.dev_key, nonce, sizeof(nonce), NULL, 0,
-	                        dev_sign, 64, encrypt_reg_data.cipher, encrypt_reg_data.mic, 4);
-	SET_DATA_VAILD(flags.encrypt_reg_data);
 
 	PT_WAIT_UNTIL(pt, auth_recv() != REG_START);
 	if (auth_recv() == REG_VERIFY_FAIL) {
@@ -1078,10 +1058,6 @@ static int reg_auth(pt_t *pt)
 	}
 	sd_rand_application_vector_get(rand_key, 16);
 
-	sha256_hkdf(     eph_key,         sizeof(eph_key),
-	        (void *) mk_salt,         sizeof(mk_salt)-1,
-	        (void *) mk_info,         sizeof(mk_info)-1,
-	                    LTMK,         sizeof(LTMK));
 	SET_DATA_VAILD(flags.LTMK);
 #if PRINT_LTMK
 	NRF_LOG_RAW_HEXDUMP_INFO(LTMK, 32);
