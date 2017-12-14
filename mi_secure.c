@@ -773,21 +773,41 @@ static void schd_evt_handler(schd_evt_t evt_id)
 {
 	switch (evt_id) {
 	case SCHD_EVT_REG_SUCCESS:
+		break;
+
 	case SCHD_EVT_REG_FAILED:
+		break;
+
 	case SCHD_EVT_ADMIN_LOGIN_SUCCESS:
+
+		break;
+
 	case SCHD_EVT_ADMIN_LOGIN_FAILED:
+		break;
+
 	case SCHD_EVT_SHARE_LOGIN_SUCCESS:
+		break;
+
 	case SCHD_EVT_SHARE_LOGIN_FAILED:
+		break;
 	case SCHD_EVT_TIMEOUT:
+		break;
 
 	case SCHD_EVT_KEY_NOT_FOUND:
+		break;
+
 	case SCHD_EVT_KEY_FOUND:
+		break;
+
 	case SCHD_EVT_KEY_DEL_FAIL:
+		break;
+
 	case SCHD_EVT_KEY_DEL_SUCC:
-		schd_stat = 0;
-		mi_scheduler_stop(0);
 		break;
 	}
+
+	schd_stat = 0;
+	mi_scheduler_stop(0);
 
 	if (m_user_event_handler != NULL)
 		m_user_event_handler(evt_id);
@@ -1185,8 +1205,8 @@ static int admin_auth(pt_t *pt)
   	if (crc32 == encrypt_login_data.crc32) {
 		NRF_LOG_INFO("ADMIN LOG SUCCESS: %d\n", schd_time);
 		key_id = 0;
-		set_mi_authorization(OWNER_AUTHORIZATION);
 		mi_crypto_init(&session_key);
+		set_mi_authorization(OWNER_AUTHORIZATION);
 		PT_WAIT_UNTIL(pt, opcode_send(LOG_SUCCESS) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_ADMIN_LOGIN_SUCCESS);
 	} else {
@@ -1370,9 +1390,8 @@ static int shared_auth(pt_t *pt)
 		enqueue(&schd_evt_queue, SCHD_EVT_SHARE_LOGIN_FAILED);
 	} else {
 		NRF_LOG_INFO("SHARED LOG SUCCESS: %d\n", schd_time);
-		set_mi_authorization(SHARE_AUTHORIZATION);
 		mi_crypto_init(&session_key);
-
+		set_mi_authorization(SHARE_AUTHORIZATION);
 		PT_WAIT_UNTIL(pt, opcode_send(SHARED_LOG_SUCCESS) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_SHARE_LOGIN_SUCCESS);
 	}
