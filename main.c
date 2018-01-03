@@ -36,6 +36,7 @@
 #include "fstorage.h"
 #include "fds.h"
 #include "ble_nus.h"
+#include "SEGGER_RTT.h"
 
 #define NRF_LOG_MODULE_NAME "MAIN"
 #include "nrf_log.h"
@@ -678,17 +679,10 @@ void mi_schd_event_handler(schd_evt_t evt_id)
 
 int pair_code_get(uint8_t *pdata, uint8_t len)
 {
-	static uint8_t input[6] = {0};
-	static uint8_t num = 0;
-	num += SEGGER_RTT_ReadNoLock(0, input + num, 6 - num);
-	
-	if (num != 6) {
-		return 1;
-	} else {
-   		memcpy(pdata, input, 6);
-		num = 0;
+	if (pdata == NULL)
 		return 0;
-	}
+
+	return SEGGER_RTT_ReadNoLock(0, pdata, len);
 }
 
 uint8_t PIN[8];

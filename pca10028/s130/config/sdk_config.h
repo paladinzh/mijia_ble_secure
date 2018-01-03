@@ -3603,7 +3603,7 @@
 // <i> Logger backend RAM usage is determined by this value.
 
 #ifndef NRF_LOG_BACKEND_MAX_STRING_LENGTH
-#define NRF_LOG_BACKEND_MAX_STRING_LENGTH 512
+#define NRF_LOG_BACKEND_MAX_STRING_LENGTH 256
 #endif
 
 // <o> NRF_LOG_TIMESTAMP_DIGITS - Number of digits for timestamp 
@@ -3694,7 +3694,7 @@
 // <i> if it is bigger than default RTT buffer size.
 
 #ifndef NRF_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE
-#define NRF_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE 512
+#define NRF_LOG_BACKEND_RTT_OUTPUT_BUFFER_SIZE 1024
 #endif
 
 #endif //NRF_LOG_BACKEND_SERIAL_USES_RTT

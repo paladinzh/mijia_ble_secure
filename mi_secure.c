@@ -51,7 +51,7 @@ typedef struct {
 #define PROFILE_PIN        25
 #define PAIRCODE_NUMS      6
 
-#define PRINT_MSC_INFO     1
+#define PRINT_MSC_INFO     0
 #define PRINT_MAC          0
 #define PRINT_DEV_PUBKEY   0
 #define PRINT_SHA256       0
@@ -285,7 +285,7 @@ uint32_t get_mi_authorization(void)
 
 
 uint32_t mi_scheduler_init(uint32_t interval, mi_schd_event_handler_t handler, mi_kbd_input_get_t recorder)
-{
+ {
 	int32_t errno;
 	schd_interval = interval;
 	errno = app_timer_create(&mi_schd_timer, APP_TIMER_MODE_REPEATED, mi_scheduler);
@@ -779,7 +779,6 @@ static void schd_evt_handler(schd_evt_t evt_id)
 		break;
 
 	case SCHD_EVT_ADMIN_LOGIN_SUCCESS:
-
 		break;
 
 	case SCHD_EVT_ADMIN_LOGIN_FAILED:
@@ -790,6 +789,7 @@ static void schd_evt_handler(schd_evt_t evt_id)
 
 	case SCHD_EVT_SHARE_LOGIN_FAILED:
 		break;
+
 	case SCHD_EVT_TIMEOUT:
 		break;
 
@@ -985,35 +985,41 @@ static int reg_msc(pt_t *pt)
 	PT_END(pt);
 }
 
+static uint8_t certs_is_sent = 0;
+
 static int reg_ble(pt_t *pt)
 {
 	PT_BEGIN(pt);
 
+	certs_is_sent = 0;
+
 	format_rx_cb(&rxfer_control_block, app_pub, sizeof(app_pub));
 	PT_SPAWN(pt, &pt_r_rx_thd, rxfer_rx_thd(&pt_r_rx_thd, &rxfer_control_block, DEV_PUBKEY));
 	SET_DATA_VAILD(flags.app_pub);
-	NRF_LOG_INFO("app_pub recived "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
+	NRF_LOG_INFO(NRF_LOG_COLOR_CODE_BLUE"app_pub recived ""@ schd_time %d\n", schd_time);
 	
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.msc_info));
 
 	format_tx_cb(&rxfer_control_block, msc_info, sizeof(msc_info) + sizeof(dev_pub));
 	PT_SPAWN(pt, &pt_r_tx_thd, rxfer_tx_thd(&pt_r_tx_thd, &rxfer_control_block, DEV_PUBKEY));
-	NRF_LOG_INFO("dev_pub send "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
+	NRF_LOG_INFO(NRF_LOG_COLOR_CODE_BLUE"dev_pub sent ""@ schd_time %d\n", schd_time);
 
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.dev_cert));
 	format_tx_cb(&rxfer_control_block, dev_cert, m_certs_len.dev);
 	PT_SPAWN(pt, &pt_r_tx_thd, rxfer_tx_thd(&pt_r_tx_thd, &rxfer_control_block, DEV_CERT));
-	NRF_LOG_INFO("dev_cert send "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
+	NRF_LOG_INFO(NRF_LOG_COLOR_CODE_BLUE"dev_cert sent ""@ schd_time %d\n", schd_time);
 	
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.manu_cert));
 	format_tx_cb(&rxfer_control_block, manu_cert, m_certs_len.manu);
 	PT_SPAWN(pt, &pt_r_tx_thd, rxfer_tx_thd(&pt_r_tx_thd, &rxfer_control_block, DEV_MANU_CERT));
-	NRF_LOG_INFO("manu_cert send "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
+	NRF_LOG_INFO(NRF_LOG_COLOR_CODE_BLUE"manu_cert sent ""@ schd_time %d\n", schd_time);
 	
+	certs_is_sent = 1;
+
 	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.dev_sign));
 	format_tx_cb(&rxfer_control_block, &dev_sign, sizeof(dev_sign));
 	PT_SPAWN(pt, &pt_r_tx_thd, rxfer_tx_thd(&pt_r_tx_thd, &rxfer_control_block, DEV_SIGNATURE));
-	NRF_LOG_INFO("encrypt_reg_data send "NRF_LOG_COLOR_CODE_BLUE"@ schd_time %d\n", schd_time);
+	NRF_LOG_INFO(NRF_LOG_COLOR_CODE_BLUE"encrypt_reg_data sent ""@ schd_time %d\n", schd_time);
 
 	PT_END(pt);
 }
@@ -1021,12 +1027,23 @@ static int reg_ble(pt_t *pt)
 static int reg_auth(pt_t *pt)
 {
 	static uint8_t pair_code[PAIRCODE_NUMS];
+	static uint8_t pair_code_num;
 	PT_BEGIN(pt);
 	
-	PT_WAIT_UNTIL(pt, DATA_IS_VAILD_P(flags.eph_key));
+	PT_WAIT_UNTIL(pt, certs_is_sent && DATA_IS_VAILD_P(flags.eph_key));
 
-	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"Please input your pair code (MUST be 6 digits) : \n\n");
-	PT_WAIT_UNTIL(pt, m_pair_code_get(pair_code, sizeof(pair_code)) == MI_SUCCESS);
+	/* Flush the input buffer */
+	uint8_t tmp[16];
+	while (m_pair_code_get(tmp, 16));
+
+	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"Please input your pair code ( MUST be 6 digits ) : \n");
+
+	pair_code_num = 0;
+	while (pair_code_num < PAIRCODE_NUMS) {
+		pair_code_num += m_pair_code_get(pair_code + pair_code_num, PAIRCODE_NUMS - pair_code_num);
+		PT_YIELD(pt);
+	}
+
 	sha256_hkdf(     eph_key,         sizeof(eph_key),
 	               pair_code,         sizeof(pair_code),
 	        (void *)reg_info,         sizeof(reg_info)-1,
@@ -1040,8 +1057,8 @@ static int reg_auth(pt_t *pt)
 	SET_DATA_VAILD(flags.dev_sha);
 
 #if (PRINT_MSC_INFO   == 1)
-	NRF_LOG_RAW_INFO("MSC info\t");
-	NRF_LOG_HEXDUMP_INFO(msc_info, 12);
+	NRF_LOG_RAW_INFO("\nMSC info\t");
+	NRF_LOG_RAW_HEXDUMP_INFO(msc_info, 12);
 #endif
 #if (PRINT_DEV_PUBKEY == 1)
 	NRF_LOG_RAW_INFO("DEV_PUBKEY\t");
@@ -1054,7 +1071,7 @@ static int reg_auth(pt_t *pt)
 
 	PT_WAIT_UNTIL(pt, opcode_recv() != REG_START);
 	if (opcode_recv() != REG_VERIFY_SUCC) {
-		NRF_LOG_ERROR("Auth failed.\n");
+		NRF_LOG_ERROR("Authenticated failed.\n");
 		PT_WAIT_UNTIL(pt, opcode_send(REG_FAILED) == NRF_SUCCESS);
 		enqueue(&schd_evt_queue, SCHD_EVT_REG_FAILED);
 		PT_EXIT(pt);
@@ -1066,10 +1083,9 @@ static int reg_auth(pt_t *pt)
 #endif
 
 	MSC_POWER_ON();
+
 #if ENC_LTMK
-	while(sd_rand_application_vector_get(mi_sysinfo.rand_key, 16) != NRF_SUCCESS) {
-		PT_YIELD(pt);
-	}
+	PT_WAIT_UNTIL(pt, sd_rand_application_vector_get(mi_sysinfo.rand_key, 16) == NRF_SUCCESS);
 
 	MKPK.id = 0;
 	aes_ccm_encrypt_and_tag(mi_sysinfo.rand_key,

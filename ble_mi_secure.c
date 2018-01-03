@@ -137,6 +137,7 @@ static void on_write(ble_evt_t * p_ble_evt)
     }
     else if (p_evt_write->handle == mi_srv.ctrl_point_handles.value_handle)
     {
+		NRF_LOG_RAW_HEXDUMP_INFO(pdata, len);
         opcode_parse(pdata, len);
     }
     else if (p_evt_write->handle == mi_srv.secure_handles.value_handle)
