@@ -116,10 +116,13 @@ int mi_session_decrypt(const uint8_t *input, uint8_t len, uint8_t *output)
 	uint16_t cnt_low = input[1]<<8 | input[0];
 	update_cnt(&curr_cnt, cnt_low);
 
-	if (curr_cnt <= session_app_cnt)
+	NRF_LOG_WARNING("old cnt: %d, new cnt: %d\n", session_app_cnt, curr_cnt); 
+	if (curr_cnt <= session_app_cnt && curr_cnt != 0) {
+		m_flags.processing = 0;
 		return -1;
-	else
+	} else {
 		session_app_cnt = curr_cnt;
+	}
 
 	nonce.counter = session_app_cnt;
 

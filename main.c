@@ -101,8 +101,6 @@ APP_TIMER_DEF(poll_timer);
 static ble_nus_t                        m_nus;                                      /**< Structure to identify the Nordic UART Service. */
 static uint16_t                         m_conn_handle = BLE_CONN_HANDLE_INVALID;    /**< Handle of the current connection. */
 
-static ble_uuid_t                       m_adv_uuids[] = {{BLE_UUID_MI_SERVICE, BLE_UUID_TYPE_BLE}};  /**< Universally unique service identifier. */
-
 /* Indicates if operation on TWI has ended. */
 volatile bool m_twi0_xfer_done = false;
 
@@ -420,7 +418,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
  */
 static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
 {
-//	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"BLE EVT %X\n", p_ble_evt->header.evt_id);
+	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"BLE EVT %X\n", p_ble_evt->header.evt_id);
 
     ble_conn_params_on_ble_evt(p_ble_evt);
 	ble_mi_on_ble_evt(p_ble_evt);
@@ -428,8 +426,7 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
     ble_nus_on_ble_evt(&m_nus, p_ble_evt);
     on_ble_evt(p_ble_evt);
     ble_advertising_on_ble_evt(p_ble_evt);
-    bsp_btn_ble_on_ble_evt(p_ble_evt);
-
+//    bsp_btn_ble_on_ble_evt(p_ble_evt);
 }
 
 /**@brief Function for dispatching a system event to interested modules.
@@ -547,7 +544,7 @@ static void advertising_init(void)
 {
     uint32_t               err_code;
     uint8_t                data[27];
-    uint8_t                total_len;
+    uint8_t                dlen;
 	ble_gap_addr_t         dev_mac;
 
 	mibeacon_capability_t cap = {.connectable = 1,
@@ -567,12 +564,12 @@ static void advertising_init(void)
 	beacon_cfg.p_capability           = &cap;
 	beacon_cfg.p_mac                  = dev_mac.addr;
 	
-	mibeacon_data_set(&beacon_cfg, data, &total_len);
+	mibeacon_data_set(&beacon_cfg, data, &dlen);
 
     /* Indicating Mi Service */
 	ble_advdata_service_data_t serviceData;
     serviceData.service_uuid = BLE_UUID_MI_SERVICE;
-    serviceData.data.size    = total_len;
+    serviceData.data.size    = dlen;
     serviceData.data.p_data  = data;
 	
     // Build advertising data struct to pass into @ref ble_advertising_init.
@@ -583,12 +580,6 @@ static void advertising_init(void)
     advdata.flags              = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
     advdata.p_service_data_array = &serviceData;
     advdata.service_data_count = 1;
-
-    ble_advdata_t          scanrsp;
-    memset(&scanrsp, 0, sizeof(scanrsp));
-	scanrsp.name_type               = BLE_ADVDATA_FULL_NAME;
-    scanrsp.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
-    scanrsp.uuids_complete.p_uuids  = m_adv_uuids;
 
 	ble_adv_modes_config_t options;
     memset(&options, 0, sizeof(options));
@@ -685,23 +676,13 @@ int pair_code_get(uint8_t *pdata, uint8_t len)
 	return SEGGER_RTT_ReadNoLock(0, pdata, len);
 }
 
-uint8_t PIN[8];
 void poll_timer_handler(void * p_context)
 {
-//	time_t utc_time = time(NULL);
-//	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"%s", nrf_log_push(ctime(&utc_time)));
+	time_t utc_time = time(NULL);
+	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_GREEN"%s", nrf_log_push(ctime(&utc_time)));
 
-//	uint8_t battery_stat = 1;
-//	mibeacon_obj_enque(MI_STA_BATTERY, sizeof(battery_stat), &battery_stat);
-
-//	NRF_LOG_RAW_INFO("max timer cnt :%d\n", app_timer_op_queue_utilization_get());
-	static uint8_t no_enough_digits = 1;
-	if (no_enough_digits)
-		no_enough_digits = pair_code_get(PIN, 6);
-	else {
-		NRF_LOG_RAW_INFO("\ninput: %s\n", (uint32_t)PIN);
-		no_enough_digits = 1;
-	}
+	uint8_t battery_stat = 1;
+	mibeacon_obj_enque(MI_STA_BATTERY, sizeof(battery_stat), &battery_stat);
 }
 
 
@@ -745,7 +726,7 @@ int main(void)
 	mi_scheduler_start(SYS_KEY_RESTORE);
 
 	app_timer_create(&poll_timer, APP_TIMER_MODE_REPEATED, poll_timer_handler);
-//	app_timer_start(poll_timer, APP_TIMER_TICKS(1000, APP_TIMER_PRESCALER), NULL);
+	app_timer_start(poll_timer, APP_TIMER_TICKS(5000, APP_TIMER_PRESCALER), NULL);
 	
 #ifdef M_TEST
 	mi_scheduler_start(0);

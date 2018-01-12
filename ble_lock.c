@@ -359,7 +359,8 @@ uint8_t get_lock_opcode(uint8_t *p_opcode)
 	uint8_t errno = mi_session_decrypt(lock_operation, 7, data);
 
 	if (errno != 0) {
-		NRF_LOG_INFO("Lock Opcode decrypt error %d\n", errno);
+		NRF_LOG_INFO("Lock opcode decrypt error %d\n", errno);
+		memset(lock_operation, 0, sizeof(lock_operation));
 		return 3;
 	}
 

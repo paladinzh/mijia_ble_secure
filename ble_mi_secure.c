@@ -94,7 +94,7 @@ static void on_disconnect(ble_evt_t * p_ble_evt)
 
 	NRF_LOG_RAW_INFO(NRF_LOG_COLOR_CODE_CYAN"Disconnect reason %X.\n",
 	                 p_ble_evt->evt.gap_evt.params.disconnected.reason);
-
+	
 	// Stop scannable adv
 	uint32_t errno = sd_ble_gap_adv_stop();
 	APP_ERROR_CHECK(errno);
